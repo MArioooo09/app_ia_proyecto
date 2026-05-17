@@ -1,46 +1,86 @@
-
-
-cf0 import streamlit as st
+import streamlit as st
 import pandas as pd
 import joblib
 import numpy as np
 
-# 1. Configuraci\'f3n de la p\'e1gina\
-st.set_page_config(page_title="Predicciones Escolares", page_icon="\uc0\u55356 \u57235 ")
-st.title("\uc0\u55356 \u57235  Predicci\'f3n de Rendimiento Estudiantil")
-st.write("Esta IA predice si un alumno aprobar\'e1 bas\'e1ndose en sus datos sociales y acad\'e9micos.")
+# 1. Configuración de la página
+st.set_page_config(page_title="IA Rendimiento Pro", page_icon="🎓", layout="wide")
+st.title("🎓 IA de Análisis de Rendimiento Estudiantil")
+st.write("Este sistema predice si un alumno aprobará basándose en su historial académico y datos sociales.")
 
-# 2. Cargar el modelo (Aseg\'farate de que 'modelo_arbol.joblib' est\'e9 en GitHub)\
-try:
+# 2. Cargar modelo y columnas
+@st.cache_resource
+def load_assets():
     model = joblib.load('modelo_arbol.joblib')
-    # Necesitamos los nombres de las columnas para que coincidan con el entrenamiento\
-    # Si guardaste las columnas en Colab, c\'e1rgalas aqu\'ed. Si no, usaremos una muestra.\
-    st.sidebar.success("Modelo cargado correctamente")
-except:
-    st.sidebar.error("No se encontr\'f3 el archivo 'modelo_arbol.joblib'. S\'fabelo a GitHub.")
+    columns = joblib.load('model_columns.joblib')
+    return model, columns
 
-# 3. Interfaz de usuario (Entradas de datos)\
-st.subheader("Introduce los datos del estudiante:")
+try:
+    model, model_columns = load_assets()
+    st.sidebar.success("✅ Modelo cargado correctamente")
+except Exception as e:
+    st.sidebar.error("❌ Error al cargar archivos .joblib")
+    st.stop()
 
-col1, col2 = st.columns(2)\
+# 3. Formulario de entrada de datos
+st.markdown("---")
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    failures = st.number_input("Fracasos anteriores (clases suspendidas)", min_value=0, max_value=4, value=0)
-    absences = st.slider("N\'famero de ausencias", 0, 93, 10)
-    higher = st.radio("\'bfQuiere hacer estudios superiores?", ["S\'ed", "No"])
+    st.subheader("📊 Notas Actuales")
+    g1 = st.slider("Nota Periodo 1 (G1)", 0, 20, 10)
+    g2 = st.slider("Nota Periodo 2 (G2)", 0, 20, 10)
+    g3 = st.slider("Nota Examen Final (G3)", 0, 20, 10)
 
 with col2:
-    Medu = st.selectbox("Nivel educativo de la madre", [0, 1, 2, 3, 4], help="0: ninguno, 4: superior")\
-    Fedu = st.selectbox("Nivel educativo del padre", [0, 1, 2, 3, 4])
-    studytime = st.slider("Tiempo de estudio semanal", 1, 4, 2, help="1: <2h, 4: >10h")
+    st.subheader("🏫 Datos Académicos")
+    failures = st.number_input("Fracasos anteriores", 0, 4, 0)
+    absences = st.slider("Ausencias totales", 0, 93, 5)
+    studytime = st.selectbox("Tiempo estudio semanal", [1, 2, 3, 4], format_func=lambda x: f"{x} (Horas: {['<2','2-5','5-10','>10'][x-1]})")
 
-# 4. Bot\'f3n de predicci\'f3n\
-if st.button("Analizar Estudiante"):
-    # NOTA: Aqu\'ed deber\'edas transformar las entradas para que coincidan \
-    # exactamente con las columnas que gener\'f3 el 'get_dummies' en Colab.\
-    # Por ahora, mostramos un mensaje de \'e9xito:\
-    st.info("Procesando datos...")\
-    \
-    # Aqu\'ed ir\'eda la l\'f3gica: prediccion = model.predict(datos_preparados)\
-    # st.write(f"Resultado: \{prediccion\}")\
-    st.warning("Recuerda que para que la predicci\'f3n funcione, los datos de entrada deben tener el mismo formato (columnas) que usaste en el entrenamiento.")}
+with col3:
+    st.subheader("👨‍👩‍👧 Entorno Familiar")
+    medu = st.slider("Educación Madre (0-4)", 0, 4, 2)
+    fedu = st.slider("Educación Padre (0-4)", 0, 4, 2)
+    higher = st.radio("¿Quiere estudios superiores?", ["Sí", "No"])
+
+# 4. Lógica de Predicción
+if st.button("🚀 Realizar Análisis"):
+    # Creamos un DataFrame con una fila llena de ceros
+    entrada = pd.DataFrame(np.zeros((1, len(model_columns))), columns=model_columns)
+    
+    # Rellenamos las variables que tenemos
+    entrada['G1'] = g1
+    entrada['G2'] = g2
+    entrada['G3'] = g3
+    entrada['failures'] = failures
+    entrada['absences'] = absences
+    entrada['studytime'] = studytime
+    entrada['Medu'] = medu
+    entrada['Fedu'] = fedu
+    
+    # Manejo de la variable categórica 'higher'
+    if higher == "Sí":
+        if 'higher_yes' in entrada.columns: entrada['higher_yes'] = 1
+    else:
+        if 'higher_no' in entrada.columns: entrada['higher_no'] = 1
+
+    # Predicción
+    pred = model.predict(entrada)
+    prob = model.predict_proba(entrada)
+
+    st.markdown("---")
+    if pred[0] == 1:
+        st.balloons()
+        st.success(f"### 🎉 RESULTADO: PROBABLE APROBADO")
+        st.write(f"Confianza de la IA: {prob[0][1]*100:.1f}%")
+    else:
+        st.error(f"### 📉 RESULTADO: RIESGO DE SUSPENSO")
+        st.write(f"Confianza de la IA: {prob[0][0]*100:.1f}%")
+    
+    # Mensaje de ayuda basado en notas
+    if (g1 + g2 + g3) < 30:
+        st.warning("Aviso: La suma de notas es baja. La IA detecta que el esfuerzo actual no es suficiente para el aprobado.")
+
+st.sidebar.markdown("---")
+st.sidebar.info("Este modelo analiza G1, G2 y G3 como factores críticos de éxito.")
